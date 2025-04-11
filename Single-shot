@@ -1,0 +1,127 @@
+%% LSTM Single-Step Wave Prediction Using JONSWAP Spectrum Data
+
+close all;             % Close all figures
+clear;                 % Clear workspace variables
+clc;                   % Clear command window
+warning off;           % Turn off warnings
+
+% Input lengths: 900, 1000 data points
+% Output duration: 20s (sampling frequency: 50 Hz => 1000 points)
+
+%% Load Data (single-column time series)
+data0 = xlsread('Wave_Time_Series.xlsx');
+times = data0(:,1);   % Time data
+data = data0(:,2);    % Wave elevation data
+
+%% Parameter Configuration
+inputs = [900, 1000];    % Number of input points
+fs = 50;                 % Sampling frequency (Hz)
+outputss = [20] * fs;    % Number of prediction points (single-step)
+
+%% Data Preparation
+nums = length(data);     % Total number of data points
+column_name = {'Time (s)','Actual Wave','Input=900','Input=1000'};
+
+%% Loop for Different Output Lengths
+for p = 1:length(outputss)
+    disp('--------------------------------------')
+    test_num = outputss(p);  % Number of points to predict
+    disp(['Single-step prediction for output length: ', num2str(test_num)])
+
+    % Initialize prediction results container
+    results = [];
+
+    % Loop for each input length
+    for k = 1:length(inputs)
+        
+        input = inputs(k);    % Current input length
+        disp(['   Processing input length: ', num2str(input)])
+
+        % Prepare input (X) and output (Y) data
+        X = [];
+        Y = [];
+        for i = 1 : nums - input
+            X(i, :) = data(i : i + input - 1)';
+            Y(i, :) = data(i + input);
+        end
+
+        % Normalize data
+        [x, psin] = mapminmax(X', 0, 1);
+        [y, psout] = mapminmax(Y', 0, 1);
+
+        % Split into training and testing sets
+        total_samples = size(X,1);
+        train_samples = total_samples - test_num;
+
+        x_train0 = x(:, 1:train_samples);
+        y_train = y(:, 1:train_samples)';
+
+        % Convert to LSTM-compatible format
+        for i = 1 : train_samples
+            x_train{i, 1} = x_train0(:, i);
+        end
+
+        %% Define LSTM Network
+        layers = [
+            sequenceInputLayer(input)                    % Input layer
+            lstmLayer(140, 'OutputMode', 'last')         % LSTM layer (140 neurons)
+            reluLayer                                    % Activation layer
+            fullyConnectedLayer(1)                       % Fully connected layer
+            dropoutLayer(0.001)                          % Dropout layer to prevent overfitting
+            regressionLayer];                            % Regression layer
+
+        %% Training Options
+        options = trainingOptions('adam', ...
+            'MaxEpochs', 60, ...
+            'ExecutionEnvironment','cpu', ...
+            'InitialLearnRate', 0.01, ...
+            'LearnRateSchedule', 'piecewise', ...
+            'LearnRateDropFactor', 0.1, ...
+            'LearnRateDropPeriod', 40, ...
+            'Shuffle', 'every-epoch', ...
+            'Plots', 'training-progress', ...
+            'Verbose', false);   
+
+        %% Train LSTM Network
+        net = trainNetwork(x_train, y_train, layers, options);
+
+        % Actual testing values
+        Y_test = Y(train_samples + 1:end);
+
+        %% Future Prediction
+        future_num = test_num;                              
+        inputnew = y_train(end - input + 1:end);  % Historical data as input
+        concaty = y_train(end - input + 1:end);   
+        outputs = zeros(1, future_num);
+
+        for i = 1:future_num
+            outputs(:, i) = predict(net, inputnew(:, i));
+            concaty = [concaty; outputs(:, i)];
+            inputnew(:, i + 1) = concaty(end - input + 1:end);
+        end
+
+        % Reverse normalization
+        realout = mapminmax('reverse', outputs, psout)';
+
+        % Store results
+        results = [results, realout];
+
+        % Plot predictions vs actual values
+        figure
+        plot(Y_test, 'r-', 'LineWidth', 1.5)
+        hold on
+        plot(realout, 'b--', 'LineWidth', 1.5)
+        legend('Actual','Predicted')
+        xlabel('Time Steps')
+        ylabel('Wave Elevation (m)')
+        title(['Single-Step Prediction (Input = ', num2str(input), ')'])
+        grid on
+
+        clear x_train
+    end
+
+    %% Save Results to Excel
+    excelname = ['SingleStep_Prediction_Output_', num2str(test_num), '.xlsx'];
+    xlswrite(excelname, [column_name; num2cell([times(end - test_num + 1:end), Y_test, results])])
+    disp(['Prediction results saved: ', excelname])
+end
