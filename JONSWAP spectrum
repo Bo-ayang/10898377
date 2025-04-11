@@ -1,0 +1,74 @@
+clc; clear; close all;
+
+%% Data Generation
+
+%% Parameter Settings
+num_samples = 7;        % Number of wave samples to generate
+T = 3000;               % Duration of the time series (seconds)
+
+%% Preallocate Storage Variables
+wave_dataset = cell(num_samples, 1);
+fs_values = zeros(num_samples, 1); 
+
+%% Generate Wave Data
+for i = 1:num_samples
+    % Define significant wave height and wave period
+    H_s = 12;           % Significant wave height (m)
+    T_s = 10;           % Mean wave period (s)
+    dm = 0.05;          % Angular frequency interval
+
+    % Sampling frequency setup
+    fs = 10;       
+    fs_values(i) = fs;       
+    dt = 1 / fs;
+    t = 0:dt:T;         % Time vector
+
+    % Generate JONSWAP spectrum
+    [S, Omega] = jonswap_spectrum(H_s, T_s, dm);
+    
+    % Calculate wave amplitude (corrected)
+    df = dm / (2 * pi);  
+    A = sqrt(2 * S * df);  
+    rand_phase = 2 * pi * rand(1, length(Omega)); % Random phases
+
+    % Compute wave elevation time series (linear superposition)
+    eta = sum(A' .* cos(Omega' * t + rand_phase'), 1);
+
+    % Normalize to ensure correct significant wave height H_s
+    eta = eta / std(eta) * (H_s / 4);  % H_s ≈ 4 × standard deviation of wave height
+
+    % Store the generated wave data
+    wave_dataset{i} = struct('time', t, 'wave', eta, 'fs', fs);
+end
+
+%% Visualization and Saving Data
+figure
+plot(wave_dataset{2}.time, wave_dataset{2}.wave)
+xlabel('Time (s)');
+ylabel('Wave Elevation (m)');
+title('Generated JONSWAP Wave Time Series');
+
+filename = 'Wave_Time_Series.xlsx';
+if exist(filename, 'file')
+    delete(filename);  % Delete existing Excel file
+end
+xlswrite(filename, [wave_dataset{2}.time', wave_dataset{2}.wave'])
+
+%% JONSWAP Spectrum Calculation Function
+function [S, Omega] = jonswap_spectrum(H_s, T_s, dm)
+    g = 9.81;            % Gravitational acceleration (m/s^2)
+    gamma = 3.3;         % JONSWAP peak enhancement factor
+    alpha = 0.076 * (H_s^2) * (1 / T_s)^4; % Normalization constant
+
+    % Angular frequency range
+    Omega = 0.1:dm:5;
+    omega_p = 2 * pi / T_s; % Peak angular frequency
+
+    % Calculate frequency width parameter (sigma)
+    sigma = 0.07 * (Omega <= omega_p) + 0.09 * (Omega > omega_p);
+
+    % Calculate JONSWAP spectrum values
+    r = exp(-((Omega - omega_p).^2) ./ (2 * sigma.^2 * omega_p^2));
+    S = alpha * g^2 * Omega.^(-5) .* exp(-5/4 * (omega_p ./ Omega).^4) .* gamma.^r;
+    S(Omega <= 0) = 0;
+end
