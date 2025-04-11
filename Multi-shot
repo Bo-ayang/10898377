@@ -1,0 +1,125 @@
+%% LSTM Multi-Step Wave Prediction Based on JONSWAP Spectrum
+
+close all            % Close all figures
+clear                % Clear workspace variables
+clc                  % Clear command window
+warning off          % Disable warnings for clean output
+
+% Input length: 600 data points
+% Output length: 100 seconds (sampling rate: 10Hz, total 1000 data points)
+
+%% Load Data (Single-column time series data)
+data0 = xlsread('Wave_Time_Series.xlsx');
+times = data0(:,1);       % Time data
+data = data0(:,2);        % Wave elevation data
+
+%% Parameter Setup
+inputs = [600];           % Number of input points for prediction
+fs = 10;                  % Sampling frequency (Hz)
+outputss = [100]*fs;      % Number of output points for prediction (multistep)
+
+%% Data Sample Information
+nums = length(data);      % Total number of data points
+column_name = {'Time (s)', 'Actual Wave', 'Prediction (Input=600)'};
+
+%% Loop for Different Output Lengths
+for p = 1:length(outputss)
+    disp('--------------------------------------')
+    test_num = outputss(p); % Number of points to predict (avoid data leakage)
+    disp(['Multi-step prediction for output length: ', num2str(test_num)])
+
+    % Initialize results storage for predictions
+    results = [];
+
+    % Loop for different input lengths
+    for k = 1:length(inputs)
+        multistep = test_num;    % Multi-step prediction points
+        input = inputs(k);       % Current input length
+        disp(['   Processing input length: ', num2str(input)])
+
+        % Prepare input (X) and output (Y) datasets
+        X = [];
+        Y = [];
+        for i = 1 : nums - input - multistep + 1
+            X(i, :) = data(i : i + input - 1)';
+            Y(i, :) = data(i + input : i + input + multistep - 1)';
+        end
+
+        % Data normalization
+        [x, psin] = mapminmax(X', 0, 1);
+        [y, psout] = mapminmax(Y', 0, 1);
+
+        % Split data into training and test sets
+        total_samples = size(X, 1);
+        train_samples = total_samples - test_num;
+
+        x_train0 = x(:, 1 : train_samples);
+        y_train = y(:, 1 : train_samples)';
+
+        % Adapt format for LSTM
+        for i = 1 : train_samples
+            x_train{i, 1} = x_train0(:, i);
+        end
+
+        %% Define LSTM Network Architecture
+        layers = [
+            sequenceInputLayer(input)                % Input layer
+            lstmLayer(140, 'OutputMode', 'last')     % LSTM layer (140 neurons)
+            reluLayer                                % ReLU activation layer
+            fullyConnectedLayer(multistep)           % Fully connected layer
+            dropoutLayer(0.01)                       % Dropout to prevent overfitting
+            regressionLayer];                        % Regression output layer
+
+        %% Training Options
+        options = trainingOptions('adam', ...        % Adam optimizer
+            'MaxEpochs', 100, ...                    % Max epochs: 100
+            'ExecutionEnvironment','cpu',...         % Use CPU for computation
+            'InitialLearnRate', 0.01, ...            % Initial learning rate
+            'LearnRateSchedule', 'piecewise', ...    % Adjust learning rate during training
+            'LearnRateDropFactor', 0.1, ...          % Learning rate reduction factor
+            'LearnRateDropPeriod', 20, ...           % Drop learning rate every 20 epochs
+            'Shuffle', 'every-epoch', ...            % Shuffle data each epoch
+            'Plots', 'training-progress', ...        % Display training progress
+            'Verbose', false);                       % No detailed progress in command window
+
+        %% Train LSTM Network
+        net = trainNetwork(x_train, y_train, layers, options);
+
+        % Actual test values
+        Y_test = Y(end - test_num + 1 : end)';
+
+        %% Predict future wave elevations
+        inputnew = y_train(end - input + 1 : end);    % Historical data as input
+        outputs = predict(net, inputnew');            % LSTM predictions
+
+        % Reverse normalization for predictions
+        realout = mapminmax('reverse', outputs', psout);
+
+        % Store results
+        results = [results, realout];
+
+        % Plot comparison of Actual vs. Predicted data
+        figure
+        plot(Y_test, 'r-', 'LineWidth', 1.5)
+        hold on
+        plot(realout, 'b--', 'LineWidth', 1.5)
+        legend('Actual', 'Predicted')
+        xlabel('Time Steps')
+        ylabel('Wave Elevation (m)')
+        title(['Multi-step Prediction (Input = ', num2str(input), ')'])
+        grid on
+
+        clear x_train
+    end
+
+    %% Save predictions to Excel
+    excelname = ['MultiStep_Prediction_Output_', num2str(test_num), '.xlsx'];
+
+    if exist(excelname, 'file')
+        delete(excelname);  % Remove existing Excel file if present
+    end
+
+    % Save data including timestamps, actual, and predicted wave values
+    xlswrite(excelname, [column_name; num2cell([times(end - test_num + 1 : end), Y_test, results])])
+    disp(['Prediction results saved to: ', excelname])
+end
