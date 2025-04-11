@@ -1,0 +1,94 @@
+clc; clear; close all;
+
+%% Data Generation
+
+%% Parameter settings
+num_samples = 1;   % Number of wave samples to generate
+T = 2000;          % Duration of time series (seconds)
+
+%% Preallocate storage
+wave_dataset = cell(num_samples, 1);
+fs_values = zeros(num_samples, 1);
+
+%% Generate wave data
+for i = 1:num_samples
+    % Significant wave height and wave period
+    H_s = 2.5;    % Significant wave height (m)
+    T_s = 6;      % Average one-third wave period (s)
+    dm = 0.05;    % Angular frequency interval
+
+    % Sampling frequency
+    fs = 50;       
+    fs_values(i) = fs;       
+    dt = 1 / fs;
+    t = 0:dt:T;   % Time vector
+
+    % Generate JONSWAP spectrum
+    [S, Omega] = jonswap_spectrum(H_s, T_s, dm);
+
+    % Calculate amplitude (corrected)
+    df = dm / (2 * pi);  
+    A = sqrt(2 * S * df);  
+    rand_phase = 2 * pi * rand(1, length(Omega)); % Random phase
+
+    % Calculate wave time series using Stokes theory
+    theta = Omega' * t + rand_phase';
+    tau_val = A;
+
+    % Stokes fifth-order decomposition terms
+    term1 = (tau_val - (3/8).*tau_val.^3 - (422/384).*tau_val.^5) .* cos(theta)';
+    term2 = ((1/2).*tau_val.^2 + (1/3).*tau_val.^4) .* cos(2*theta)';
+    term3 = ((3/8).*tau_val.^3 + (99/128).*tau_val.^5) .* cos(3*theta)';
+    term4 = ((1/3).*tau_val.^3) .* cos(4*theta)';
+    term5 = ((125/384).*tau_val.^5) .* cos(5*theta)';
+
+    % Summation of all terms
+    xi_value = (term1 + term2 + term3 + term4 + term5);
+
+    eta = sum(A .* xi_value, 2);
+
+    % Normalize to ensure significant wave height H_s
+    eta = eta / std(eta) * (H_s / 4);  % H_s ≈ 4 × std of wave height
+
+    % Store data
+    wave_dataset{i} = struct('time', t, 'wave', eta, 'fs', fs);
+end
+
+%% Visualization and Saving
+figure
+plot(wave_dataset{1}.time, wave_dataset{1}.wave)
+xlabel('Time (s)');
+ylabel('Wave Elevation (m)');
+title('Generated Stokes Wave Time Series');
+
+xlswrite("Wave_Time_Series1.xlsx", [wave_dataset{1}.time', wave_dataset{1}.wave])
+
+%% JONSWAP Spectrum Calculation Function
+function [S, Omega] = jonswap_spectrum(H_s, T_s, dm)
+    g = 9.81;          % Gravitational acceleration
+    gamma = 3.3;       % JONSWAP peak enhancement factor
+    alpha = 0.076 * (H_s^2) * (1 / T_s)^4; % Normalization factor
+
+    Omega = 0.1:dm:5;  % Angular frequency range
+    omega_p = 2 * pi / T_s; % Peak angular frequency
+
+    % Frequency width parameter
+    sigma = 0.07 * (Omega <= omega_p) + 0.09 * (Omega > omega_p);
+
+    % Calculate JONSWAP spectrum
+    r = exp(-((Omega - omega_p).^2) ./ (2 * sigma.^2 * omega_p^2));
+    S = alpha * g^2 * Omega.^-5 .* exp(-5/4 * (omega_p ./ Omega).^4) .* gamma.^r;
+    S(Omega <= 0) = 0;
+end
+
+%% Numerical Calculation (Optional)
+function xi_value = calculate_xi(t, rand_phase, tau_val, Omega)
+    theta = Omega' * t + rand_phase';
+    term1 = (tau_val - (3/8).*tau_val.^3 - (422/384).*tau_val.^5) .* cos(theta);
+    term2 = ((1/2).*tau_val.^2 + (1/3).*tau_val.^4) .* cos(2*theta);
+    term3 = ((3/8).*tau_val.^3 + (99/128).*tau_val.^5) .* cos(3*theta);
+    term4 = ((1/3).*tau_val.^3) .* cos(4*theta);
+    term5 = ((125/384).*tau_val.^5) .* cos(5*theta);
+
+    xi_value = (term1 + term2 + term3 + term4 + term5) ./ tau_val;
+end
