@@ -1,0 +1,4 @@
+function [MAE,RMSE] = zhibiao(real,predict)
+    MAE = sqrt(mean((real-predict).^2));
+    RMSE = mean(abs(real-predict));
+end
