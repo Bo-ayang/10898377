@@ -1,0 +1,123 @@
+%% Single-Step Prediction Results Comparison (Horizontal Comparison)
+% This script compares single-step prediction results obtained using different input sizes for each output length.
+
+close all;             % Close all figure windows
+clear;                 % Clear workspace variables
+clc;                   % Clear command window
+warning off;           % Disable warnings
+
+fs = 5;                % Sampling frequency (Hz)
+outputss = [30, 40] * fs;  % Output points (number of prediction points: 150, 200)
+
+%% Define custom colors (Ensure 'addcolor' function exists or replace with RGB values)
+C1 = addcolor(1);
+C2 = addcolor(34);
+C3 = addcolor(98);
+C4 = addcolor(135);
+C6 = addcolor(178);
+C8 = addcolor(248);
+
+%% Loop through output sizes
+for i = 1:length(outputss)
+    
+    %% Load single-step prediction results from Excel
+    excelname = ['SingleStep_Prediction_Output_', num2str(outputss(i)), '.xlsx'];
+    data = xlsread(excelname);
+    times = data(:,1);     % Time vector (s)
+    real = data(:,2);      % Actual wave height
+    samp1 = data(:,3);     % Predicted (input size=100)
+    samp2 = data(:,4);     % Predicted (input size=200)
+    samp3 = data(:,5);     % Predicted (input size=300)
+
+    %% Plot settings (units: centimeters)
+    figureUnits = 'centimeters';
+    figureWidth = 20;
+    figureHeight = 15;
+
+    %% Plot actual and predicted wave heights
+    figureHandle = figure;
+    set(gcf, 'Units', figureUnits, 'Position', [0 0 figureWidth figureHeight]); 
+    hold on
+    Line1 = plot(times, real, '-', 'LineWidth', 1, 'Color', C1);
+    Line2 = plot(times, samp1, '-', 'LineWidth', 1, 'Color', C2);
+    Line3 = plot(times, samp2, '-', 'LineWidth', 1, 'Color', C3);
+    Line4 = plot(times, samp3, '-', 'LineWidth', 1, 'Color', C4);
+
+    % Axis labels and legend
+    xlabel('Time (s)');
+    ylabel('Wave Height (m)');
+    legend([Line1, Line2, Line3, Line4], ...
+           'Actual', 'Input=100', 'Input=200', 'Input=300', ...
+           'Location', 'northwest');
+    title(['Single-Step Prediction Comparison - Output: ', num2str(outputss(i))]);
+    set(gca, 'Color', [1 1 1], 'FontSize', 12);
+    
+    % Save figure
+    outputFolder = 'SingleStep_Prediction_Comparison';
+    if ~exist(outputFolder, 'dir')
+        mkdir(outputFolder);
+    end
+    print(figureHandle, [outputFolder, '/', num2str(outputss(i)), '.png'], '-r600', '-dpng');
+
+    %% Calculate MAE and RMSE metrics
+    [MAE1, RMSE1] = zhibiao(real, samp1);
+    [MAE2, RMSE2] = zhibiao(real, samp2);
+    [MAE3, RMSE3] = zhibiao(real, samp3);
+    
+    metrics = [MAE1, RMSE1; MAE2, RMSE2; MAE3, RMSE3];
+
+    %% Save metrics to Excel
+    metrics_excelname = [outputFolder, '/', num2str(outputss(i)), '_Metrics.xlsx'];
+    headers = {'Input Size', 'MAE', 'RMSE'};
+    input_sizes = {'Input Size=100'; 'Input Size=200'; 'Input Size=300'};
+    xlswrite(metrics_excelname, [headers; input_sizes, num2cell(metrics)]);
+
+    %% Plot metrics as bar chart
+    figureHandle1 = figure;
+    set(gcf, 'Units', figureUnits, 'Position', [0 0 figureWidth figureHeight]); 
+    barPlot = bar(metrics, 1, 'EdgeColor', 'k');
+    barPlot(1).FaceColor = C6; % MAE color
+    barPlot(2).FaceColor = C8; % RMSE color
+
+    % Chart details
+    title(['Single-Step Prediction Metrics - Output Size: ', num2str(outputss(i))]);
+    ylabel('Error Metric Value');
+    legend(barPlot, 'MAE', 'RMSE', 'Location', 'northwest');
+    set(gca, 'XTickLabel', {'Input=100','Input=200','Input=300'}, 'FontSize', 12, 'Color', [1 1 1]);
+
+    % Save bar chart
+    print(figureHandle1, [outputFolder, '/', num2str(outputss(i)), '_Metrics.png'], '-r600', '-dpng');
+
+    %% Scatter Plots (Actual vs Predicted)
+    figure;
+    scatter(real, samp1, '.');
+    hold on; plot(xlim, ylim, '-r', 'LineWidth', 1);
+    xlabel('Actual Wave Height [m]');
+    ylabel('Predicted Wave Height [m]');
+    title(['Scatter Plot (Input=100) - Output: ', num2str(outputss(i))]);
+
+    figure;
+    scatter(real, samp2, '.');
+    hold on; plot(xlim, ylim, '-r', 'LineWidth', 1);
+    xlabel('Actual Wave Height [m]');
+    ylabel('Predicted Wave Height [m]');
+    title(['Scatter Plot (Input=200) - Output: ', num2str(outputss(i))]);
+
+    figure;
+    scatter(real, samp3, '.');
+    hold on; plot(xlim, ylim, '-r', 'LineWidth', 1);
+    xlabel('Actual Wave Height [m]');
+    ylabel('Predicted Wave Height [m]');
+    title(['Scatter Plot (Input=300) - Output: ', num2str(outputss(i))]);
+
+    %% Regression Plots (Actual vs Predicted)
+    figure; plotregression(real, samp1, ['Regression - Input=100, Output=', num2str(outputss(i))]);
+    set(gcf,'Toolbar','figure');
+
+    figure; plotregression(real, samp2, ['Regression - Input=200, Output=', num2str(outputss(i))]);
+    set(gcf,'Toolbar','figure');
+
+    figure; plotregression(real, samp3, ['Regression - Input=300, Output=', num2str(outputss(i))]);
+    set(gcf,'Toolbar','figure');
+
+end
